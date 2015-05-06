@@ -3,8 +3,12 @@ Docker DNS: Quick and Dirty DNS for use with docker containers
 Features:
 
 Reads your /etc/hosts and export it to DNS table
-Reads your docker container and expose the hostname associate with it.
+
+Reads your docker containers and expose the hostname associated with it, and also changes your /etc/hosts with it.
+(for the period that is running)
+
 Use OTHERHOSTNAMES enviroment variable to add other hostnames to that container.
+
 Answers only IPV4 requests.
 
 Install
