@@ -26,7 +26,8 @@ nodejs nodedns.js
 
 Start your docker containers with --dns pointing to your docker0 interface
 
-from your docker machine ping the hostname of the container to see if is working
+From your docker host ping the hostname of the container to see if is working, and from containers ping other
+containers.
 
 **Example script**
 
