@@ -43,6 +43,8 @@ function readEtcHosts(){
 			}
 		}		
 	}
+
+
 }
 
 
@@ -117,13 +119,28 @@ function updateEtcHosts()
 	if (containerhosts === "") return;
 
 	var hosts = fs.readFileSync("/etc/hosts").toString();
+	var hostsbefore = hosts;
 
-	if (hosts.indexOf("#BEGIN nodednsmanaged") === -1)
-		hosts = "#BEGIN nodednsmanaged\r\n#END nodednsmanaged\r\n" + hosts;
+        hosts = hosts.replace(/#BEGIN nodednsmanaged[\s\S]*#END nodednsmanaged\r\n/, "");
+	var containerPart =  "#BEGIN nodednsmanaged\r\n" + containerhosts + "#END nodednsmanaged\r\n";
 
-	hosts = hosts.replace(/#BEGIN nodednsmanaged[\s\S]*#END nodednsmanaged/, "#BEGIN nodednsmanaged\r\n" + containerhosts + "#END nodednsmanaged");
+	//comment out duplicates that are in g_ContainerHosts.
+	for (var name in g_ContainerHosts) {
+                 if (g_ContainerHosts.hasOwnProperty(name)) {
+			var r = hosts.match(new RegExp("\\n.+" + name));
+			if (r != null) {
+				if (r[0].indexOf("\n#") !== 0){
+					hosts = hosts.replace(r[0], "\n#NODEDNS managed " + r[0].substring(1));
+					//console.log(r[0].substring(1));
+				}
+			}
+                 }
+        }
 
-	fs.writeFileSync("/etc/hosts", hosts);
+	hosts = containerPart + hosts;
+
+	if (hosts !== hostsbefore)
+		fs.writeFileSync("/etc/hosts", hosts);
 
 }
 
@@ -156,6 +173,7 @@ process.on('SIGINT', function() {
 	if (hosts.indexOf("#BEGIN nodednsmanaged") > -1)
 	{	
 		hosts = hosts.replace(/#BEGIN nodednsmanaged[\s\S]*#END nodednsmanaged\r\n/, "");
+		hosts = hosts.replace(/#NODEDNS managed /g,"");
 
 		fs.writeFileSync("/etc/hosts", hosts);
 	}
