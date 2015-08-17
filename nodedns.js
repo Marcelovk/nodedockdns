@@ -3,18 +3,23 @@ var server = dns.createServer();
 var fs = require('fs');
 var cp = require('child_process');
 var net = require('net');
-var docker = require('docker-remote-api')
+var Docker = require('dockerode');
+var xml2js = require('xml2js');
+var child_process = require('child_process');
 
-var request = docker({
-  host: '/var/run/docker.sock'
-})
+var docker = new Docker({
+  socketPath: '/var/run/docker.sock'
+});
 
 var dnsAmap = [];
+var manualMap = [];
 
-function readEtcHosts(){
+var PATH_HOSTS_UOL_BUILD_XML='/home/mkampen/workspace/hosts/build.xml';
+
+function readEtcHosts(path){
 
 	//read /etc/hosts and create our map of answers
-	var hosts = fs.readFileSync("/etc/hosts").toString().split("\r\n");
+	var hosts = fs.readFileSync(path).toString().split("\n");
 	
 	for (var j=hosts.length-1;j>=0;j--)
 	{
@@ -33,8 +38,7 @@ function readEtcHosts(){
 			{
 				if (parts[i].trim().length == 0) continue;
 				console.log("read " + parts[0] + " " + parts[i]);
-					
-				
+									
 				dnsAmap[parts[i]] = dns.A({
 				    name: parts[i],
 				    address: parts[0],
@@ -47,116 +51,36 @@ function readEtcHosts(){
 
 }
 
-
-var g_ContainerHosts = [];
+var g_ContainerHosts = {};
+var g_OriginalAnswers = {};
 
 function readDockerContainers(){
-	
-	var containerhosts = "";
 
-	request.get('/containers/json', {json:true}, function(err, containers) {
-		  if (err) throw err;
-		  
-		  for (var i=0;i<containers.length;i++)	
-			{
-				request.get('/containers/' + containers[i].Id +  '/json', {json:true}, function(err, container) {
-					if (err) throw err;
-				  
-					var hn = container.Config.Hostname + "." + container.Config.Domainname;
-					if (container.Config.Domainname === "") 
-					   hn = container.Config.Hostname;
-				  		 
-					dnsAmap[hn] = 
-				    		 dns.A({
-						    name: hn,
-					    	    address: container.NetworkSettings.IPAddress,
-						    ttl: 60
-						 });
-
-					g_ContainerHosts[hn] =  container.NetworkSettings.IPAddress;
-
-					//check if there are other names for this container
-					var cEnv = container.Config.Env;
-					var otherNames = [];
-					for (var k=0;k<cEnv.length;k++)
-					{
-						if (cEnv[k].indexOf('OTHERNAMES')==0)
-						{
-						    otherNames = cEnv[k].substr(cEnv[k].indexOf('=')+1).split(',');
-						}
-					}
-
-					for (var j=0;j<otherNames.length;j++)
-					{
-						dnsAmap[otherNames[j]] =
-                                                 dns.A({
-                                                    name: otherNames[j],
-                                                    address: container.NetworkSettings.IPAddress,
-                                                    ttl: 60
-                                                 });
-
-						g_ContainerHosts[otherNames[j]] =  container.NetworkSettings.IPAddress;
-					}
-				});
-			}
-		  
+	docker.listContainers(function (err, containers){
+		if (err) throw err;
+		 
+		containers.forEach(function (containerInfo)
+		{
+			addContainerNames(containerInfo.Id);	  
+		});
 	});
 
-
 }
-
-function updateEtcHosts()
-{
-
-	containerhosts = "";
-
-	for (var name in g_ContainerHosts) {
- 		 if (g_ContainerHosts.hasOwnProperty(name)) {
-			containerhosts += g_ContainerHosts[name] + "\t" + name + "\r\n";
- 	 	 }
-	}
-
-	if (containerhosts === "") return;
-
-	var hosts = fs.readFileSync("/etc/hosts").toString();
-	var hostsbefore = hosts;
-
-        hosts = hosts.replace(/#BEGIN nodednsmanaged[\s\S]*#END nodednsmanaged\r\n/, "");
-	var containerPart =  "#BEGIN nodednsmanaged\r\n" + containerhosts + "#END nodednsmanaged\r\n";
-
-	//comment out duplicates that are in g_ContainerHosts.
-	for (var name in g_ContainerHosts) {
-                 if (g_ContainerHosts.hasOwnProperty(name)) {
-			var r = hosts.match(new RegExp("\\n.+" + name));
-			if (r != null) {
-				if (r[0].indexOf("\n#") !== 0){
-					hosts = hosts.replace(r[0], "\n#NODEDNS managed " + r[0].substring(1));
-					//console.log(r[0].substring(1));
-				}
-			}
-                 }
-        }
-
-	hosts = containerPart + hosts;
-
-	if (hosts !== hostsbefore)
-		fs.writeFileSync("/etc/hosts", hosts);
-
-}
-
 
 
 server.on('request', function (request, response) {
   
   if (dnsAmap.hasOwnProperty(request.question[0].name))
   {
-	  console.log("request for " + request.question[0].name + "(" +  dnsAmap[request.question[0].name].address + ")");
-	  response.answer.push(dnsAmap[request.question[0].name]);	  
+	console.log("[" + request.address.address + "] requests for " + request.question[0].name + "(" +  dnsAmap[request.question[0].name].address + ")");
+	response.answer.push(dnsAmap[request.question[0].name]);	  
   }
   else
   {
-	  console.log("request for " + request.question[0].name + " not found");
+	  console.log("[" + request.address.address + "]" + " request for " + request.question[0].name + " not found");
   }
+
+
   response.send();
   
 });
@@ -168,24 +92,110 @@ server.on('error', function (err, buff, req, res) {
 process.on('SIGINT', function() {
     console.log("End");
 
-	var hosts = fs.readFileSync("/etc/hosts").toString();
-
-	if (hosts.indexOf("#BEGIN nodednsmanaged") > -1)
-	{	
-		hosts = hosts.replace(/#BEGIN nodednsmanaged[\s\S]*#END nodednsmanaged\r\n/, "");
-		hosts = hosts.replace(/#NODEDNS managed /g,"");
-
-		fs.writeFileSync("/etc/hosts", hosts);
-	}
-
-    	process.exit();
+    process.exit();
 });
 
-readEtcHosts();
 
-setInterval(readDockerContainers, 1000);
+function getEnviroment(environmentName)
+{
+	if ((environmentName == null) || (environmentName == undefined)) return;
 
-updateEtcHosts(); //for unclean shutdown
-setInterval(updateEtcHosts, 2000);
+	console.log(child_process.execSync('ant -f ' + PATH_HOSTS_UOL_BUILD_XML + ' ' + environmentName  +  ' -Dlinux_hosts_path=/tmp/nodedns_hosts'));
+        readEtcHosts('/tmp/nodedns_hosts');
 
-server.serve(53);
+}
+
+getEnviroment(process.argv[2]);
+
+function removeContainerNames(containerId)
+{
+        for (var j=0;j<g_ContainerHosts[containerId].hns.length;j++)
+	{
+		console.log ("removing " + g_ContainerHosts[containerId].hns[j]);
+		dnsAmap[g_ContainerHosts[containerId].hns[j]] = g_OriginalAnswers[g_ContainerHosts[containerId].hns[j]];
+	}
+}
+
+function addContainerNames(containerId)
+{
+	docker.getContainer(containerId).inspect(function (err, container) {
+
+		if (container == null) return;
+
+		if (err) throw err;
+			  
+		var hn = container.Config.Hostname + "." + container.Config.Domainname;
+		if (container.Config.Domainname === "")
+			hn = container.Config.Hostname;
+				  	
+		console.log("adding " + hn + " " + container.NetworkSettings.IPAddress);
+		
+		g_OriginalAnswers[hn] = dnsAmap[hn];
+		dnsAmap[hn] = 
+	    		 dns.A({
+			    name: hn,
+		    	    address: container.NetworkSettings.IPAddress,
+			    ttl: 1 //containers can be very short lived
+			 });
+
+		g_ContainerHosts[containerId] = {};
+		g_ContainerHosts[containerId].hns = [];
+		g_ContainerHosts[containerId].hns.push(hn);
+
+		//check if there are other names for this container
+		var cEnv = container.Config.Env;
+		var otherNames = [];
+		for (var k=0;k<cEnv.length;k++)
+		{
+			if (cEnv[k].indexOf('OTHERNAMES')==0)
+			{
+				otherNames = cEnv[k].substr(cEnv[k].indexOf('=')+1).split(',');
+			}
+		}
+
+		for (var j=0;j<otherNames.length;j++)
+		{
+			g_OriginalAnswers[otherNames[j]] = dnsAmap[otherNames[j]];
+			console.log("adding " + otherNames[j] + " " + container.NetworkSettings.IPAddress);
+			dnsAmap[otherNames[j]] =
+                        			dns.A({
+                                                	name: otherNames[j],
+                                                	address: container.NetworkSettings.IPAddress,
+                                                	ttl: 1
+                                                });
+
+			g_ContainerHosts[containerId].hns.push(otherNames[j]);
+		}
+	});
+		
+}
+
+readDockerContainers();
+
+docker.getEvents(function (err, stream)
+{
+    stream.on('data', function(data)
+    {	
+	var container = JSON.parse(data.toString());
+	
+	switch (container.status)
+	{
+		//case "create": 
+		//case "exec_create":
+		case "start":
+		case "unpause":
+			addContainerNames(container.id);
+		break;
+		//case "kill":
+		//case "stop":
+		//case "destroy":
+		case "pause":
+		case "die":
+			removeContainerNames(container.id);
+		break;
+	}
+	
+  });
+});
+
+server.serve(53, '172.17.42.1');
