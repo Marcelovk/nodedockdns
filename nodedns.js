@@ -4,7 +4,6 @@ var fs = require('fs');
 var cp = require('child_process');
 var net = require('net');
 var Docker = require('dockerode');
-var xml2js = require('xml2js');
 var child_process = require('child_process');
 
 var docker = new Docker({
@@ -13,43 +12,6 @@ var docker = new Docker({
 
 var dnsAmap = [];
 var manualMap = [];
-
-var PATH_HOSTS_UOL_BUILD_XML='/home/mkampen/workspace/hosts/build.xml';
-
-function readEtcHosts(path){
-
-	//read /etc/hosts and create our map of answers
-	var hosts = fs.readFileSync(path).toString().split("\n");
-	
-	for (var j=hosts.length-1;j>=0;j--)
-	{
-		var h = hosts[j];		
-		
-		if (h.indexOf("#") > -1)
-			h = h.substring(0, h.indexOf("#"));
-		
-		if (h.trim()=='') continue;
-				
-		parts = h.split(/(\s+)/);		
-		
-		if (parts.length > 1)
-		{	
-			for (i=1;i<parts.length;i++)
-			{
-				if (parts[i].trim().length == 0) continue;
-				console.log("read " + parts[0] + " " + parts[i]);
-									
-				dnsAmap[parts[i]] = dns.A({
-				    name: parts[i],
-				    address: parts[0],
-				    ttl: 600,
-				  });				
-			}
-		}		
-	}
-
-
-}
 
 var g_ContainerHosts = {};
 var g_OriginalAnswers = {};
@@ -66,7 +28,6 @@ function readDockerContainers(){
 	});
 
 }
-
 
 server.on('request', function (request, response) {
   
@@ -95,17 +56,6 @@ process.on('SIGINT', function() {
     process.exit();
 });
 
-
-function getEnviroment(environmentName)
-{
-	if ((environmentName == null) || (environmentName == undefined)) return;
-
-	console.log(child_process.execSync('ant -f ' + PATH_HOSTS_UOL_BUILD_XML + ' ' + environmentName  +  ' -Dlinux_hosts_path=/tmp/nodedns_hosts'));
-        readEtcHosts('/tmp/nodedns_hosts');
-
-}
-
-getEnviroment(process.argv[2]);
 
 function removeContainerNames(containerId)
 {
@@ -198,4 +148,10 @@ docker.getEvents(function (err, stream)
   });
 });
 
-server.serve(53, '172.17.42.1');
+if (process.argv.length < 2)
+{
+	console.log("Usage: node nodedns.js <IP ADDRESS OF DOCKER0 IFACE>");
+}
+
+
+server.serve(53, process.argv[1]);

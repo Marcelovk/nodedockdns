@@ -2,9 +2,7 @@ Docker DNS: Quick and Dirty DNS for use with docker containers
 
 **Features:**
 
-  Reads your /etc/hosts and export it to DNS table
-
-  Reads your docker containers and expose the hostname associated with it, and also changes your /etc/hosts with it. (Only for the period that is running)
+  Reads your docker containers and expose the hostname associated with it
 
   Use OTHERHOSTNAMES enviroment variable to add other hostnames to that container.
 
@@ -13,15 +11,14 @@ Docker DNS: Quick and Dirty DNS for use with docker containers
 **Install**
 
 ```
-npm install docker-remote-api
-npm install native-dns
 git clone https://github.com/Marcelovk/nodedockdns.git
+npm install
 ```
 
 **Usage:**
 
 ```
-nodejs nodedns.js
+nodejs nodedns.js <ip address of docker0 interface>
 ```
 
 Start your docker containers with --dns pointing to your docker0 interface

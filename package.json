@@ -1,0 +1,10 @@
+{
+  "name": "nodedockdns",
+  "description": "A simple DNS that export names for running containers on docker",
+  "author": "Marcelo van Kampen <mkampen@gmail.com>",
+  "dependencies": {
+    "dockerode": "2.2.x",
+    "native-dns": "0.7.x"
+  },
+  "engine": "node >= 0.12.4"
+}
